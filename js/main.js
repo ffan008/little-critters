@@ -2,7 +2,7 @@
 import { Rng } from './rng.js';
 import { SPECIES, generateBatch } from './species.js';
 import { Animal } from './animal.js';
-import { drawAnimal, drawName, drawParticle } from './draw.js';
+import { drawAnimal, drawName, drawParticle, drawButterfly } from './draw.js';
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -13,7 +13,14 @@ const countEl = document.getElementById('countLabel');
 const speciesEl = document.getElementById('speciesLabel');
 const speciesTotalEl = document.getElementById('speciesTotal');
 
-const rng = new Rng();
+// 每一批小伙伴都由种子生成：链接里带 #b=种子 就能复现同一批
+function seedFromHash() {
+  const m = (location.hash || '').match(/b=(\d+)/);
+  return m ? (parseInt(m[1], 10) >>> 0 || 1) : Math.floor(Math.random() * 2 ** 31);
+}
+const baseSeed = seedFromHash();
+if (baseSeed !== 0) history.replaceState(null, '', '#b=' + baseSeed);
+
 let W = 0, H = 0, dpr = 1;
 let cols = 6, rows = 3, cellW = 0, cellH = 0, R = 60;
 let animals = [];
@@ -94,10 +101,11 @@ function newFriends(silent = false) {
       leaving.push(a);
     }
   }
-  const batch = generateBatch(count, rng);
+  const batchRng = new Rng((baseSeed + batchNo * 7919) >>> 0 || 1);
+  const batch = generateBatch(count, batchRng);
   animals = batch.map((b, i) => {
     const col = i % cols, row = Math.floor(i / cols);
-    const a = new Animal(b, col, row, rng, now, 0.28 + col * 0.05 + row * 0.08 + rng.range(0, 0.06));
+    const a = new Animal(b, col, row, batchRng, now, 0.28 + col * 0.05 + row * 0.08 + batchRng.range(0, 0.06));
     place(a);
     return a;
   });
@@ -138,12 +146,78 @@ window.addEventListener('blur', () => { pointer.active = false; });
 
 // ---------- 按钮 / 键盘 ----------
 btnNew.addEventListener('click', () => newFriends());
+const btnShot = document.getElementById('btnShot');
+const btnShare = document.getElementById('btnShare');
+if (btnShot) btnShot.addEventListener('click', snapshot);
+if (btnShare) btnShare.addEventListener('click', share);
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.key === 'r' || e.key === 'R') {
     e.preventDefault();
     newFriends();
+  } else if (e.key === 's' || e.key === 'S') {
+    snapshot();
   }
 });
+
+// ---------- 蝴蝶彩蛋 ----------
+const butterfly = { active: false, t0: 0, dur: 9, x: 0, y: 0, dir: 1, yBase: 0, nextAt: now + 12 };
+function updateButterfly() {
+  if (!butterfly.active) {
+    if (now >= butterfly.nextAt) {
+      butterfly.active = true;
+      butterfly.t0 = now;
+      butterfly.dur = 8 + Math.random() * 4;
+      butterfly.dir = Math.random() < 0.5 ? 1 : -1;
+      butterfly.yBase = H * (0.28 + Math.random() * 0.4);
+      say('一只蝴蝶慢悠悠地飞过，大家看呆了。', 1);
+    }
+    return;
+  }
+  const p = (now - butterfly.t0) / butterfly.dur;
+  if (p >= 1) {
+    butterfly.active = false;
+    butterfly.nextAt = now + 18 + Math.random() * 22;
+    return;
+  }
+  butterfly.x = butterfly.dir < 0 ? W * (1 - p) : W * p;
+  butterfly.y = butterfly.yBase + Math.sin(p * Math.PI * 5) * H * 0.08;
+  // 附近没在忙的小动物，都扭头看蝴蝶
+  for (const a of animals) {
+    if (a.attentive || a.action || a.leaveAt !== null) continue;
+    if (Math.hypot(a.cx - butterfly.x, a.cy - butterfly.y) < Math.max(cellW, cellH) * 1.6) {
+      a.forceGaze = { x: butterfly.x, y: butterfly.y, until: now + 0.25 };
+    }
+  }
+}
+
+// ---------- 收进相册 ----------
+function snapshot() {
+  const out = document.createElement('canvas');
+  out.width = canvas.width; out.height = canvas.height;
+  const o = out.getContext('2d');
+  o.fillStyle = '#e9e3d7';
+  o.fillRect(0, 0, out.width, out.height);
+  o.drawImage(canvas, 0, 0);
+  o.font = `500 ${Math.round(13 * dpr)}px 'IBM Plex Mono', Menlo, monospace`;
+  o.fillStyle = 'rgba(58,45,39,0.5)';
+  o.textAlign = 'center';
+  o.fillText(`纸上小伙伴 · FIELD NOTES ${batchEl.textContent}`, out.width / 2, out.height - 14 * dpr);
+  const a = document.createElement('a');
+  a.download = `纸上小伙伴-${batchEl.textContent}.png`;
+  a.href = out.toDataURL('image/png');
+  a.click();
+  say('已经收进相册（下载）啦。', 2);
+}
+
+// ---------- 分享这一批 ----------
+async function share() {
+  try {
+    await navigator.clipboard.writeText(location.href);
+    say('链接已复制！发给朋友，打开就是同一批小伙伴。', 2);
+  } catch {
+    say('复制失败了，手动复制地址栏的链接也可以。', 2);
+  }
+}
 
 // ---------- 主循环 ----------
 let last = performance.now();
@@ -154,6 +228,8 @@ function frame(ts) {
 
   // 触屏：手指离开一会儿后就不再盯着
   if (pointer.type === 'touch' && now - pointer.lastMove > 2.5) pointer.active = false;
+
+  updateButterfly();
 
   // 谁在看鼠标：以指针所在格为中心的 3x3
   let pc = -99, pr = -99;
@@ -184,11 +260,14 @@ function frame(ts) {
   particles = particles.filter((p) => now - p.born < p.life);
   for (const p of particles) drawParticle(ctx, p, now, R);
 
+  // 蝴蝶飞在最上层
+  if (butterfly.active) drawButterfly(ctx, butterfly.x, butterfly.y, now - butterfly.t0, R);
+
   requestAnimationFrame(frame);
 }
 
 // ---------- 启动 ----------
-speciesTotalEl.textContent = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN'][SPECIES.length] || SPECIES.length;
+speciesTotalEl.textContent = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN'][SPECIES.length] || SPECIES.length;
 let resizeTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(layout, 120); });
 now = performance.now() / 1000;

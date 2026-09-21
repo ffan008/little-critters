@@ -57,6 +57,7 @@ function fillStroke(ctx, fill, lw, stroke = INK) {
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (lw > 0) { ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.stroke(); }
 }
+export { fillStroke };
 
 function strokeLine(ctx, pts, lw, color = INK) {
   ctx.beginPath();
@@ -239,6 +240,96 @@ function drawAntlers(ctx, rim, R, lw) {
   }
 }
 
+// 刺猬的刺：沿头顶轮廓一圈向外的小尖锥（画在头部填充之前，根部藏在头里）
+function drawSpikes(ctx, v, rim, R, lw) {
+  const col = '#8a6a48';
+  for (let i = -4; i <= 4; i++) {
+    const nx = i / 4.2;
+    const ny = -Math.sqrt(Math.max(0.05, 1 - nx * nx));
+    const b = rim(nx, ny, { slide: 0.12, r: 0.9 });
+    const d = Math.hypot(b.x, b.y) || 1;
+    const ux = b.x / d, uy = b.y / d;           // 向外法线
+    const px = -uy, py = ux;                     // 切线方向
+    const L = R * (0.42 + 0.13 * Math.sin(v.seed + i * 2.1));
+    const w = R * 0.1;
+    ctx.beginPath();
+    ctx.moveTo(b.x + px * w, b.y + py * w);
+    ctx.quadraticCurveTo(b.x + ux * L * 0.5 + px * w * 0.4, b.y + uy * L * 0.5 + py * w * 0.4, b.x + ux * L, b.y + uy * L);
+    ctx.quadraticCurveTo(b.x + ux * L * 0.5 - px * w * 0.4, b.y + uy * L * 0.5 - py * w * 0.4, b.x - px * w, b.y - py * w);
+    ctx.closePath();
+    fillStroke(ctx, col, lw * 0.8);
+  }
+  // 第二层短刺，错开填补缝隙
+  for (let i = -3; i <= 3; i++) {
+    const nx = (i + 0.5) / 3.8;
+    const ny = -Math.sqrt(Math.max(0.05, 1 - nx * nx));
+    const b = rim(nx, ny, { slide: 0.12, r: 0.86 });
+    const d = Math.hypot(b.x, b.y) || 1;
+    const ux = b.x / d, uy = b.y / d;
+    const L = R * (0.26 + 0.08 * Math.sin(v.seed + i * 3.3 + 1));
+    const w = R * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(b.x + px2(ux, uy, w), b.y + py2(ux, uy, w));
+    ctx.lineTo(b.x + ux * L, b.y + uy * L);
+    ctx.lineTo(b.x - px2(ux, uy, w), b.y - py2(ux, uy, w));
+    ctx.closePath();
+    fillStroke(ctx, shadeHex(col, 0.12), lw * 0.7);
+  }
+}
+const px2 = (ux, uy, w) => -uy * w;
+const py2 = (ux, uy, w) => ux * w;
+
+// 小鸡头顶的绒毛：两三撮小呆毛
+function drawTuft(ctx, v, rim, R, lw) {
+  for (const [dx, lean] of [[-0.12, -0.7], [0.02, 0], [0.14, 0.7]]) {
+    const b = rim(dx, -0.92, { slide: 0.1, r: 0.95 });
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y + R * 0.04);
+    ctx.quadraticCurveTo(
+      b.x + dx * R * 0.6 + lean * R * 0.05, b.y - R * 0.16,
+      b.x + dx * R * 0.9 + lean * R * 0.28, b.y - R * 0.26 - Math.abs(lean) * R * 0.06
+    );
+    ctx.lineWidth = lw * 1.5; ctx.strokeStyle = v.dark; ctx.stroke();
+  }
+}
+
+// 蝴蝶：翅膀随时间扇动
+export function drawButterfly(ctx, x, y, age, R) {
+  const flap = Math.sin(age * 16);
+  const s = R * 0.42;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.sin(age * 1.8) * 0.12);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const k of [-1, 1]) {
+    ctx.save();
+    ctx.scale(k, 1);
+    ctx.rotate(flap * 0.55);
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.1);
+    ctx.bezierCurveTo(s * 0.9, -s * 1.05, s * 1.5, -s * 0.1, s * 0.4, s * 0.2);
+    ctx.closePath();
+    fillStroke(ctx, '#d98e5f', R * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(s * 0.22, s * 0.12);
+    ctx.bezierCurveTo(s * 1.05, s * 0.3, s * 0.85, s * 0.85, s * 0.22, s * 0.55);
+    ctx.closePath();
+    fillStroke(ctx, '#c9645c', R * 0.03);
+    ctx.beginPath(); ctx.arc(s * 0.72, -s * 0.45, s * 0.14, 0, Math.PI * 2);
+    fillStroke(ctx, '#f4e8d2', R * 0.025);
+    ctx.restore();
+  }
+  ctx.beginPath(); ctx.ellipse(0, s * 0.1, s * 0.13, s * 0.5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = INK; ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.06, -s * 0.35);
+  ctx.quadraticCurveTo(-s * 0.3, -s * 0.75, -s * 0.42, -s * 0.7);
+  ctx.moveTo(s * 0.06, -s * 0.35);
+  ctx.quadraticCurveTo(s * 0.3, -s * 0.75, s * 0.42, -s * 0.7);
+  ctx.lineWidth = R * 0.022; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.restore();
+}
+
 // ---------- 斑纹（在头部裁剪区内绘制） ----------
 
 function drawMarkings(ctx, a, map, R, lw) {
@@ -330,6 +421,14 @@ function drawMarkings(ctx, a, map, R, lw) {
         const m = map(0, 0.74);
         blobPath(ctx, m.x, m.y, rx * 0.72 * m.sx, ry * 0.3, { seed: v.seed + 4 });
         fillStroke(ctx, v.light, 0);
+        break;
+      }
+      case 'owlDisc': {
+        for (const side of [-1, 1]) {
+          const m = map(side * v.eye.spread * 0.85, v.eye.y + 0.1);
+          blobPath(ctx, m.x, m.y, eyeR * 1.95 * m.sx, eyeR * 2.15, { seed: v.seed + side * 4, amp: 0.06 });
+          fillStroke(ctx, withAlpha(v.light, 0.9), 0);
+        }
         break;
       }
     }
@@ -510,6 +609,22 @@ function drawFace(ctx, a, map, R, lw) {
       }
       noseBottom = nm.y + nr * 0.4;
       break;
+    case 'beak': {
+      const bc = nz.color || '#e08a2e';
+      const bw = nr * 1.35;
+      ctx.beginPath();
+      ctx.moveTo(nm.x - bw * nm.sx, nm.y - bw * 0.4);
+      ctx.quadraticCurveTo(nm.x, nm.y - bw * 0.62, nm.x + bw * nm.sx, nm.y - bw * 0.4);
+      ctx.lineTo(nm.x, nm.y + bw * 1.15);
+      ctx.closePath();
+      fillStroke(ctx, bc, lw * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(nm.x, nm.y - bw * 0.4);
+      ctx.lineTo(nm.x, nm.y + bw * 0.8);
+      ctx.lineWidth = lw * 0.45; ctx.strokeStyle = withAlpha(INK, 0.4); ctx.stroke();
+      noseBottom = nm.y + bw * 0.6;
+      break;
+    }
   }
 
   // 嘴
@@ -680,6 +795,8 @@ export function drawAnimal(ctx, a, R) {
 
   if (v.ear) drawEars(ctx, a, rim, R, lw);
   if (spec.extra === 'antlers' && v.extras.antlers) drawAntlers(ctx, rim, R, lw);
+  if (spec.extra === 'spikes') drawSpikes(ctx, v, rim, R, lw);
+  if (spec.extra === 'tuft') drawTuft(ctx, v, rim, R, lw);
 
   const headPath = () => blobPath(ctx, 0, 0, rx, ry, { seed: v.seed, amp: 0.02, cheek: v.cheek, n: 44 });
   headPath();
